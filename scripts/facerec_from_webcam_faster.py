@@ -2,67 +2,64 @@ import face_recognition
 import cv2
 import numpy as np
 import os
+import yaml
 
-# This is a demo of running face recognition on live video from your webcam. It's a little more complicated than the
-# other example, but it includes some basic performance tweaks to make things run a lot faster:
-#   1. Process each video frame at 1/4 resolution (though still display it at full resolution)
-#   2. Only detect faces in every other frame of video.
+from deepface import DeepFace
 
-# PLEASE NOTE: This example requires OpenCV (the `cv2` library) to be installed only to read from your webcam.
-# OpenCV is *not* required to use the face_recognition library. It's only required if you want to run this
-# specific demo. If you have trouble installing it, try any of the other demos that don't require it instead.
 
-# Get a reference to webcam #0 (the default one)
 video_capture = cv2.VideoCapture(0)
-
-# Load a sample picture and learn how to recognize it.
-# obama_image = face_recognition.load_image_file("data/obama.jpg")
-# obama_face_encoding = face_recognition.face_encodings(obama_image)[0]
-
-# # Load a second sample picture and learn how to recognize it.
-# biden_image = face_recognition.load_image_file("data/biden.jpg")
-# biden_face_encoding = face_recognition.face_encodings(biden_image)[0]
-
-# # Create arrays of known face encodings and their names
-# known_face_encodings = [
-#     obama_face_encoding,
-#     biden_face_encoding
-# ]
-# known_face_names = [
-#     "Barack Obama",
-#     "Joe Biden"
-# ]
-
 
 global known_face_encodings, known_face_names
 
+SCALING_FACTOR = 1
+N_SUBJS_TO_LOAD = 10000
 
-def load_templates_dataset():
+
+def load_templates_dataset(templates_dir_path):
     global known_face_encodings, known_face_names
-    templates_dir_path = '../app/data/templates'
     templates_paths = os.listdir(templates_dir_path)
     known_face_encodings = [np.load(os.path.join(templates_dir_path, template_path)) for template_path in templates_paths]
     known_face_names = [template_path.split('.')[0] for template_path in templates_paths]
-    
 
-def run():
+    final_encodings, final_names = [], []
+    for enc, name in zip(known_face_encodings, known_face_names):
+        if 'guilherme' in name:
+            final_encodings.append(enc)
+            final_names.append(name)
+    
+    final_encodings = final_encodings + known_face_encodings[:N_SUBJS_TO_LOAD]
+    final_names = final_names + known_face_names[:N_SUBJS_TO_LOAD]
+
+    known_face_encodings = final_encodings
+    known_face_names = final_names
+
+    print(f'Total known face encodings: {len(known_face_encodings)}')
+    print(f'Total known face names: {len(known_face_names)}')
+    print(f'Known face names: {known_face_names}')
+    print('----------')
+            
+
+def run_with_face_recognition():
     # Initialize some variables
     face_locations = []
     face_encodings = []
     face_names = []
-    process_this_frame = True
+    face_distances = []
+    is_processing_frame = True
 
+    frame_number = 0
     while True:
         # Grab a single frame of video
         _, frame = video_capture.read()
 
         # Only process every other frame of video to save time
-        if process_this_frame:
-            # Resize frame of video to 1/4 size for faster face recognition processing
-            small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+        if is_processing_frame:
+            # Resize frame of video for faster face recognition processing
+            small_frame = cv2.resize(frame, (0, 0), fx=1/SCALING_FACTOR, fy=1/SCALING_FACTOR)
 
             # Convert the image from BGR color (which OpenCV uses) to RGB color (which face_recognition uses)
-            rgb_small_frame = small_frame[:, :, ::-1]
+            #rgb_small_frame = small_frame[:, :, ::-1]
+            rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
             
             # Find all the faces and face encodings in the current frame of video
             face_locations = face_recognition.face_locations(rgb_small_frame)
@@ -71,34 +68,34 @@ def run():
             face_names = []
             for face_encoding in face_encodings:
                 # See if the face is a match for the known face(s)
-                matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.54)
+                matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.7)  # 0.54
+                face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
                 name = "Unknown"
 
+                print(f'Matches: {matches[:10]}')
+                print(f'Face Distances: {face_distances[:10]}')
+                
                 # If a match was found in known_face_encodings, just use the first one.
                 if True in matches:
                     first_match_index = matches.index(True)
                     name = known_face_names[first_match_index]
-
+                    
                 # Or instead, use the known face with the smallest distance to the new face
-                else:
-                    face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
-                    best_match_index = np.argmin(face_distances)
-                    if matches[best_match_index]:
-                        name = known_face_names[best_match_index]
+                # else:
+                #     best_match_index = np.argmin(face_distances)
+                #     if matches[best_match_index]:
+                #         name = known_face_names[best_match_index]
 
                 face_names.append(name)
-
-        process_this_frame = not process_this_frame
-
+                
 
         # Display the results
-        for (top, right, bottom, left), name in zip(face_locations, face_names):
-            # Scale back up face locations since the frame we detected in was scaled to 1/4 size
-            resize_factor = 2
-            top *= resize_factor
-            right *= resize_factor
-            bottom *= resize_factor
-            left *= resize_factor
+        for (top, right, bottom, left), name, f_dist in zip(face_locations, face_names, face_distances):
+            # Scale back up face locations since the frame we detected in was scaled
+            top *= SCALING_FACTOR
+            right *= SCALING_FACTOR
+            bottom *= SCALING_FACTOR
+            left *= SCALING_FACTOR
 
             # Draw a box around the face
             cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
@@ -107,19 +104,33 @@ def run():
             cv2.rectangle(frame, (left, bottom + 35), (right, bottom), (0, 0, 255), cv2.FILLED)
             font = cv2.FONT_HERSHEY_DUPLEX
             cv2.putText(frame, name, (left + 6, bottom + 30), font, 1.0, (255, 255, 255), 1)
+            cv2.putText(frame, f'Distance: {round(f_dist,5)}', (40, 70), font, 1.0, (0, 0, 255), 1)
+            cv2.putText(frame, f'Frame Number: {frame_number}', (40, 40), font, 1.0, (0, 0, 255), 1)
+
+            print(f'face_distances[0]: {f_dist}')
 
         # Display the resulting image
         cv2.imshow('Video', frame)
+        #cv2.moveWindow('Video', 100, 150)        
 
         # Hit 'q' on the keyboard to quit!
         if (cv2.waitKey(1) & 0xFF == ord('q')):
             break
+            
+        frame_number += 1
+        is_processing_frame = not is_processing_frame
 
     # Release handle to the webcam
     video_capture.release()
     cv2.destroyAllWindows()
 
 
+
 if __name__ == '__main__':
-    load_templates_dataset()
-    run()
+    config = yaml.safe_load(open('config.yaml'))
+    
+    load_templates_dataset(config['templates_dir'])
+
+    if config['framework'] == 'face_recognition':
+        run_with_face_recognition()
+    
