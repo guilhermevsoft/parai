@@ -4,8 +4,6 @@ import numpy as np
 import os
 import yaml
 
-from deepface import DeepFace
-
 
 video_capture = cv2.VideoCapture(0)
 
@@ -43,7 +41,7 @@ def run_with_face_recognition():
     # Initialize some variables
     face_locations = []
     face_encodings = []
-    face_names = []
+    final_face_names = []
     face_distances = []
     is_processing_frame = True
 
@@ -65,32 +63,36 @@ def run_with_face_recognition():
             face_locations = face_recognition.face_locations(rgb_small_frame)
             face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
 
-            face_names = []
-            for face_encoding in face_encodings:
+            final_face_names, final_face_dists, final_face_locations = [], [], []
+            for face_enc, face_loc in zip(face_encodings, face_locations):
                 # See if the face is a match for the known face(s)
-                matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.7)  # 0.54
-                face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+                matches = face_recognition.compare_faces(known_face_encodings, face_enc, tolerance=0.5)  # 0.54
+                face_distances = face_recognition.face_distance(known_face_encodings, face_enc)
                 name = "Unknown"
+                face_dist = -1
 
-                print(f'Matches: {matches[:10]}')
-                print(f'Face Distances: {face_distances[:10]}')
+                #print(f'Matches: {matches[:10]}')
+                #print(f'Face Distances: {face_distances[:10]}')
                 
                 # If a match was found in known_face_encodings, just use the first one.
-                if True in matches:
-                    first_match_index = matches.index(True)
-                    name = known_face_names[first_match_index]
+                #if True in matches:
+                #    first_match_index = matches.index(True)
+                #    name = known_face_names[first_match_index]
                     
                 # Or instead, use the known face with the smallest distance to the new face
                 # else:
-                #     best_match_index = np.argmin(face_distances)
-                #     if matches[best_match_index]:
-                #         name = known_face_names[best_match_index]
+                best_match_index = np.argmin(face_distances)
+                if matches[best_match_index]:
+                    name = known_face_names[best_match_index]
+                    face_dist = face_distances[best_match_index]
 
-                face_names.append(name)
+                final_face_names.append(name)
+                final_face_dists.append(face_dist)
+                final_face_locations.append(face_loc)
                 
 
         # Display the results
-        for (top, right, bottom, left), name, f_dist in zip(face_locations, face_names, face_distances):
+        for (top, right, bottom, left), name, f_dist in zip(final_face_locations, final_face_names, final_face_dists):
             # Scale back up face locations since the frame we detected in was scaled
             top *= SCALING_FACTOR
             right *= SCALING_FACTOR
@@ -104,7 +106,8 @@ def run_with_face_recognition():
             cv2.rectangle(frame, (left, bottom + 35), (right, bottom), (0, 0, 255), cv2.FILLED)
             font = cv2.FONT_HERSHEY_DUPLEX
             cv2.putText(frame, name, (left + 6, bottom + 30), font, 1.0, (255, 255, 255), 1)
-            cv2.putText(frame, f'Distance: {round(f_dist,5)}', (40, 70), font, 1.0, (0, 0, 255), 1)
+            cv2.putText(frame, f'Distance: {round(f_dist, 5)}', (left + 6, bottom + 60), font, 1.0, (255, 255, 255), 1)
+            #cv2.putText(frame, f'Distance: {round(f_dist,5)}', (40, 70), font, 1.0, (0, 0, 255), 1)
             cv2.putText(frame, f'Frame Number: {frame_number}', (40, 40), font, 1.0, (0, 0, 255), 1)
 
             print(f'face_distances[0]: {f_dist}')
